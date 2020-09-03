@@ -1,0 +1,5 @@
+quart
+aiomysql
+sqlalchemy
+aiohttp
+quart-cors
