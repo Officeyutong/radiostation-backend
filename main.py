@@ -48,6 +48,7 @@ async def init():
                     target TEXT,
                     anonymous BOOLEAN NOT NULL,
                     password VARCHAR(128) NOT NULL,
+                    checked BOOLEAN NOT NULL DEFAULT FALSE,
                     INDEX(password),
                     INDEX(song_id),
                     INDEX(time)

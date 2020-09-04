@@ -12,6 +12,7 @@ import datetime
 import typing
 import traceback
 import math
+import aiomysql
 router = Blueprint("api", __name__)
 
 
@@ -142,3 +143,207 @@ async def api_songlist():
                     }
                 final_result.append(current)
     return make_response(0, data=final_result, pageCount=page_count)
+
+
+@router.route("/query", methods=["POST", "GET"])
+async def api_query():
+    json = (await request.get_json())
+    req_id, password = json["ID"], json["password"]
+    async with main.pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute("""
+                SELECT * FROM request WHERE id = %s and password = %s
+            """, (
+                req_id, password
+            ))
+            ret = await cursor.fetchall()
+            if len(ret) == 0:
+                return make_response(-1, message="ID或密码错误")
+            ret = ret[0]
+            return make_response(0, data={
+                "songID": ret["song_id"],
+                "comment": ret["comment"],
+                "requester": ret["requester"],
+                "target": ret["target"],
+                "anonymous": bool(ret["anonymous"]),
+                "time": str(ret["time"])
+            })
+
+
+@router.route("/update", methods=["POST", "GET"])
+async def api_get():
+    json = (await request.get_json())
+    req_id, password = json["ID"], json["password"]
+    async with main.pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("""
+                SELECT COUNT(*) FROM request WHERE id = %s and password = %s
+            """, (
+                req_id, password
+            ))
+            if (await cursor.fetchone())[0] == 0:
+                return make_response(-1, message="用户名或密码错误")
+            await cursor.execute("""
+                UPDATE request SET
+                song_id = %s,
+                comment = %s,
+                requester = %s,
+                target = %s,
+                anonymous = %s
+                WHERE
+                id = %s AND password = %s
+            """, (
+                json["song"], json["comment"], json["requester"], json["target"], json["anonymous"],
+                req_id, password
+            ))
+            await conn.commit()
+            return make_response(0, message="操作完成")
+
+
+@router.route("/setcheck", methods=["POST"])
+async def api_toggle_check():
+    json = await request.get_json()
+    password, request_id, checked = json["password"], json["ID"], json["checked"]
+    if password != main.config.DJ_PASSWORD and password != main.config.ADMIN_PASSWORD:
+        return make_response(-1, message="密码错误")
+    async with main.pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("""
+            UPDATE request SET checked = %s WHERE id = %s
+            """, (
+                checked, request_id
+            ))
+        await conn.commit()
+    return make_response(0, message="ok")
+
+
+@router.route("/manage", methods=["POST", "GET"])
+async def api_manage():
+    password = (await request.get_json())["password"]
+    page = int((await request.get_json()).get("page", 1))
+    if password == main.config.ADMIN_PASSWORD:
+        is_admin = True
+    elif password == main.config.DJ_PASSWORD:
+        is_admin = False
+    else:
+        return make_response(-1, message="密码错误")
+    result = []
+    async with main.pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cursor:
+            await cursor.execute("""SELECT COUNT(DISTINCT song_id) as count FROM request""")
+            item_count = (await cursor.fetchone())["count"]
+            print(f"{item_count=}")
+            page_count = int(
+                math.ceil(item_count/main.config.BACKEND_REQUESTS_PER_PAGE))
+            print(f"{page_count=}")
+            await cursor.execute(f"""
+                SELECT 
+                song_id,
+                COUNT(*) AS request_count,
+                MIN(time) as earliest_time
+                FROM request
+                GROUP BY song_id
+                ORDER BY request_count DESC,earliest_time ASC
+                LIMIT {main.config.BACKEND_REQUESTS_PER_PAGE}
+                OFFSET {(page-1)*main.config.BACKEND_REQUESTS_PER_PAGE}
+            """)
+            songs = [item["song_id"] for item in (await cursor.fetchall())]
+
+            print(songs)
+            for song in songs:
+                song_data = await fetch_song_data(song)
+
+                song_obj = {
+                    "songData": {
+                        "name": song_data["name"],
+                        "picURL": song_data["picture_url"],
+                        "audioURL": song_data["audio_url"],
+                        "author": song_data["author"],
+                        "songID": song
+                    },
+                    "requests": []
+
+                }
+                result.append(song_obj)
+                reqs = song_obj["requests"]
+                await cursor.execute(f"""
+                SELECT
+                time,
+                id,
+                comment,
+                requester,
+                target,
+                anonymous,
+                password,
+                checked
+                FROM request
+                WHERE song_id = {song}
+                ORDER BY time ASC
+                """)
+                items = (await cursor.fetchall())
+                for req in items:
+                    current_req = {
+                        "ID": req["id"],
+                        "checked": bool(req["checked"]),
+                        "target": req["target"],
+                        "time": str(req["time"]),
+                        "comment": req["comment"],
+                        "requester": req["requester"],
+                        "anonymous": bool(req["anonymous"])
+                    }
+                    if is_admin:
+                        current_req["password"] = req["password"]
+                    else:
+                        if req["anonymous"]:
+                            current_req["requester"] = "匿名"
+                    reqs.append(current_req)
+    return make_response(0, isAdmin=is_admin, pageCount=page_count, data=result)
+
+
+@router.route("/remove/request", methods=["POST", "GET"])
+async def api_remove_request():
+    json = await request.get_json()
+    password, request_id = json["password"], json["ID"]
+    if password != main.config.ADMIN_PASSWORD:
+        return make_response(-1, message="密码错误")
+    async with main.pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("""
+            DELETE FROM request WHERE id = %s
+            """, (request_id,))
+        await conn.commit()
+    return make_response(0, message="操作完成")
+
+
+@router.route("/remove/song", methods=["POST", "GET"])
+async def api_remove_song():
+    json = await request.get_json()
+    password, song_id = json["password"], json["ID"]
+    if password != main.config.ADMIN_PASSWORD:
+        return make_response(-1, message="密码错误")
+    async with main.pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("""
+            DELETE FROM request WHERE song_id = %s
+            """, (song_id,))
+        await conn.commit()
+    return make_response(0, message="操作完成")
+
+
+@router.route("/search", methods=["POST"])
+async def api_search():
+    keyword = (await request.get_json())["keyword"]
+    if not keyword.strip():
+        return make_response(-1, message="请输入关键字")
+    async with main.client.get(main.make_url("/search"), params={"keywords": keyword, "limit": main.config.SEARCH_RESULT_COUNT_LIMIT}) as resp:
+        json_resp = (await resp.json())["result"]["songs"]
+        print(json_resp)
+        result = [
+            {
+                "name": item["name"],
+                "songID":int(item["id"]),
+                "author":"/".join((artist["name"] for artist in item["artists"]))
+            }
+            for item in json_resp
+        ]
+    return make_response(0, data=result)
