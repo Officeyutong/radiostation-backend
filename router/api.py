@@ -24,13 +24,14 @@ async def fetch_many_song_data(songs: typing.List[int]) -> typing.List[typing.Di
         songs_data = (await resp.json()).get("songs", [])
     async with main.client.get(main.make_url("/song/url"), params={"id": ",".join(str(x["id"]) for x in songs_data)}) as resp:
         audio_urls = [item["url"] for item in (await resp.json())["data"]]
+        print((await resp.json())["data"])
     result = []
     # print(songs_data[0])
     for i in range(len(songs_data)):
         result.append({
             "name": songs_data[i]["name"],
             "picture_url": songs_data[i]["al"]["picUrl"],
-            "audio_url": audio_urls[i],
+            "audio_url": audio_urls[i] or f"https://music.163.com/song/media/outer/url?id={songs_data[i]['id']}.mp3",
             "author": "/".join((item["name"] for item in songs_data[i]["ar"])),
             "id": songs_data[i]["id"]
         })
