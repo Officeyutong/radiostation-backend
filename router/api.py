@@ -16,6 +16,41 @@ import aiomysql
 router = Blueprint("api", __name__)
 
 
+async def fetch_many_song_data(songs: typing.List[int]) -> typing.List[typing.Dict[str, str]]:
+    async with main.client.get(main.make_url("/song/detail"), params={"ids": ",".join((str(x) for x in songs))},) as resp:
+        resp: aiohttp.client.ClientResponse
+        songs_data = (await resp.json())["songs"]
+    async with main.client.get(main.make_url("/song/url"), params={"id": ",".join(str(x["id"]) for x in songs_data)}) as resp:
+        audio_urls = [item["url"] for item in (await resp.json())["data"]]
+    result = []
+    for i in range(len(songs)):
+        result.append({
+            "name": songs_data[i]["name"],
+            "picture_url": songs_data[i]["al"]["blurPicUrl"],
+            "audio_url": audio_urls[i],
+            "author": "/".join((item["name"] for item in songs_data[i]["ar"])),
+            "id": songs_data[i]["id"]
+        })
+    copied: typing.List[typing.Union[int,
+                                     typing.Dict[str, str]]] = songs.copy()
+    for item in result:
+        index = copied.index(item["id"])
+        copied[index] = item
+    bad_ids = []
+    for i, item in enumerate(copied):
+        if type(item) == int:
+            bad_ids.append(i)
+    for item in bad_ids:
+        copied[item] = {
+            "name": "歌曲ID错误",
+            "picture_url": "",
+            "audio_url": "",
+            "author": "",
+            "id": copied[item]
+        }
+    return copied
+
+
 async def fetch_song_data(song_id: int) -> typing.Dict[str, str]:
     async with main.client.get(main.make_url("/song/detail"), params={"ids": song_id},) as resp:
         resp: aiohttp.client.ClientResponse

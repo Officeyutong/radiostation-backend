@@ -34,7 +34,9 @@ async def init():
         db=config.MYSQL_DATABASE,
         host=config.MYSQL_HOST,
         loop=asyncio.get_event_loop(),
-        autocommit=False
+        autocommit=False,
+        minsize=1,
+        maxsize=1
     )
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
