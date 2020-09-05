@@ -34,7 +34,7 @@ async def init():
         db=config.MYSQL_DATABASE,
         host=config.MYSQL_HOST,
         loop=asyncio.get_event_loop(),
-        autocommit=False,
+        autocommit=True,
         minsize=1,
         maxsize=1
     )

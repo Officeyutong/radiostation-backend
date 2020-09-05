@@ -19,14 +19,17 @@ router = Blueprint("api", __name__)
 async def fetch_many_song_data(songs: typing.List[int]) -> typing.List[typing.Dict[str, str]]:
     async with main.client.get(main.make_url("/song/detail"), params={"ids": ",".join((str(x) for x in songs))},) as resp:
         resp: aiohttp.client.ClientResponse
-        songs_data = (await resp.json())["songs"]
+        if """msg":"参数错误!""" in await resp.text():
+            return []
+        songs_data = (await resp.json()).get("songs", [])
     async with main.client.get(main.make_url("/song/url"), params={"id": ",".join(str(x["id"]) for x in songs_data)}) as resp:
         audio_urls = [item["url"] for item in (await resp.json())["data"]]
     result = []
-    for i in range(len(songs)):
+    # print(songs_data[0])
+    for i in range(len(songs_data)):
         result.append({
             "name": songs_data[i]["name"],
-            "picture_url": songs_data[i]["al"]["blurPicUrl"],
+            "picture_url": songs_data[i]["al"]["picUrl"],
             "audio_url": audio_urls[i],
             "author": "/".join((item["name"] for item in songs_data[i]["ar"])),
             "id": songs_data[i]["id"]
@@ -150,9 +153,10 @@ async def api_songlist():
                 OFFSET {(page-1)*main.config.REQUESTS_PER_PAGE} 
             """)
             result = await cursor.fetchall()
-            for item in result:
+            song_datas = await fetch_many_song_data([item[0] for item in result])
+            for item, song_data in zip(result, song_datas):
                 song_id, count, _ = item
-                song_data = await fetch_song_data(song_id)
+                # song_data = await fetch_song_data(song_id)
                 print(f"{song_id} fetched = {song_data}")
                 if len(song_data) != 0:
                     current = {
@@ -285,8 +289,9 @@ async def api_manage():
             songs = [item["song_id"] for item in (await cursor.fetchall())]
 
             print(songs)
-            for song in songs:
-                song_data = await fetch_song_data(song)
+            songs_data = await fetch_many_song_data(songs)
+            for song, song_data in zip(songs, songs_data):
+                # song_data = await fetch_song_data(song)
 
                 song_obj = {
                     "songData": {
@@ -371,7 +376,11 @@ async def api_search():
     if not keyword.strip():
         return make_response(-1, message="请输入关键字")
     async with main.client.get(main.make_url("/search"), params={"keywords": keyword, "limit": main.config.SEARCH_RESULT_COUNT_LIMIT}) as resp:
-        json_resp = (await resp.json())["result"]["songs"]
+        # print((await resp.json()))
+        json = await resp.json()
+        if json["result"]["songCount"] == 0:
+            return make_response(0, data=[])
+        json_resp = json["result"]["songs"]
         print(json_resp)
         result = [
             {
