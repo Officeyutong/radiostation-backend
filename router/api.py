@@ -23,36 +23,53 @@ async def fetch_many_song_data(songs: typing.List[int]) -> typing.List[typing.Di
             return []
         songs_data = (await resp.json()).get("songs", [])
     async with main.client.get(main.make_url("/song/url"), params={"id": ",".join(str(x["id"]) for x in songs_data)}) as resp:
-        audio_urls = [item["url"] for item in (await resp.json())["data"]]
+        audio_urls = (await resp.json())["data"]
         print((await resp.json())["data"])
-    result = []
+    by_id: typing.Dict[int, typing.Dict[str, typing.Any]] = {}
     # print(songs_data[0])
-    for i in range(len(songs_data)):
-        result.append({
-            "name": songs_data[i]["name"],
-            "picture_url": songs_data[i]["al"]["picUrl"],
-            "audio_url": audio_urls[i] or f"https://music.163.com/song/media/outer/url?id={songs_data[i]['id']}.mp3",
-            "author": "/".join((item["name"] for item in songs_data[i]["ar"])),
-            "id": songs_data[i]["id"]
-        })
-    copied: typing.List[typing.Union[int,
-                                     typing.Dict[str, str]]] = songs.copy()
-    for item in result:
-        index = copied.index(item["id"])
-        copied[index] = item
-    bad_ids = []
-    for i, item in enumerate(copied):
-        if type(item) == int:
-            bad_ids.append(i)
-    for item in bad_ids:
-        copied[item] = {
-            "name": "歌曲ID错误",
-            "picture_url": "",
-            "audio_url": "",
-            "author": "",
-            "id": copied[item]
+    for item in songs_data:
+        by_id[item["id"]] = {
+            "name": item["name"],
+            "picture_url": item["al"]["picUrl"],
+            "id": item["id"],
+            "author": "/".join((author["name"] for author in item["ar"])),
+            "audio_url": ""
         }
-    return copied
+    for item in audio_urls:
+        if item["id"] in by_id:
+            by_id[item["id"]
+                  ]["audio_url"] = item["url"] or f"https://music.163.com/song/media/outer/url?id={item['id']}.mp3"
+    result = []
+    for song_id in songs:
+        if song_id in by_id:
+            result.append(by_id[song_id])
+        else:
+            result.append({
+                "name": "未知歌曲ID",
+                "picture_url": "",
+                "id": song_id,
+                "author": "",
+                "audio_url": ""
+            })
+    return result
+    # copied: typing.List[typing.Union[int,
+    #                                  typing.Dict[str, str]]] = songs.copy()
+    # for item in result:
+    #     index = copied.index(item["id"])
+    #     copied[index] = item
+    # bad_ids = []
+    # for i, item in enumerate(copied):
+    #     if type(item) == int:
+    #         bad_ids.append(i)
+    # for item in bad_ids:
+    #     copied[item] = {
+    #         "name": "歌曲ID错误",
+    #         "picture_url": "",
+    #         "audio_url": "",
+    #         "author": "",
+    #         "id": copied[item]
+    #     }
+    # return copied
 
 
 async def fetch_song_data(song_id: int) -> typing.Dict[str, str]:
