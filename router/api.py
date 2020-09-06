@@ -88,7 +88,7 @@ async def fetch_song_data(song_id: int) -> typing.Dict[str, str]:
         # 获取歌曲链接
         try:
             async with main.client.get(main.make_url("/song/url"), params={"id": song_id}) as resp:
-                audio_url = (await resp.json())["data"][0]["url"]
+                audio_url = (await resp.json())["data"][0]["url"] or f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
         except Exception:
             traceback.print_exc()
         return {
